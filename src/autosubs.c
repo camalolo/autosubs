@@ -716,6 +716,15 @@ static int transcribe_range(struct whisper_context * ctx, struct whisper_full_pa
     return 0;
 }
 
+// count UTF-8 codepoints (not bytes) so CJK text is judged fairly
+static size_t utf8_len(const char * s) {
+    size_t n = 0;
+    for (const unsigned char * p = (const unsigned char *) s; *p; p++) {
+        if ((*p & 0xC0) != 0x80) n++; // count non-continuation bytes
+    }
+    return n;
+}
+
 // post-filter: remove hallucination loops and unrealistic cue durations
 static void cue_postprocess(struct cue_list * cl) {
     int w = 0;
@@ -815,7 +824,7 @@ static void cue_postprocess(struct cue_list * cl) {
     }
 
     for (int i = 0; i < cl->count; i++) {
-        int64_t cap = (int64_t) strlen(cl->items[i].text) * 120 + 3000; // ~8 chars/s + 3 s floor
+        int64_t cap = (int64_t) utf8_len(cl->items[i].text) * 250 + 2000; // ~4 chars/s + 2 s floor
         if (cap > 20000) cap = 20000;
         if (cl->items[i].t1 - cl->items[i].t0 > cap) cl->items[i].t1 = cl->items[i].t0 + cap;
     }
@@ -833,7 +842,7 @@ static void cue_postprocess(struct cue_list * cl) {
             if (!alnum) { free(cl->items[i].text); n_punct++; continue; }
 
             double dur = (double) (cl->items[i].t1 - cl->items[i].t0) / 1000.0;
-            double rate = (double) strlen(t) / (dur > 0.05 ? dur : 0.05);
+            double rate = (double) utf8_len(t) / (dur > 0.05 ? dur : 0.05); // chars/s, any script
             if (rate > 22.0) {
                 if (g_verbose) {
                     info("    [drop-rate] @%.1fs %.0f c/s: %.40s\n",
@@ -1067,7 +1076,7 @@ static void usage(void) {
         "  -h, --help               show this help\n"
         "\n"
         "Examples:\n"
-        "  autosubs \"E:\\Downloads\\Planetes\\Season 01\"\n"
+        "  autosubs \"D:\\Videos\\Series\\Season 01\"\n"
         "  autosubs movie.mkv --language ja\n"
         "  autosubs series/ --force --beam 5\n");
 }
