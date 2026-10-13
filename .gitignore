@@ -1,0 +1,10 @@
+build/
+bin/
+models/*.bin
+!models/ggml-silero-v6.2.0.bin
+third_party/
+*.log
+*.srt
+release/
+.vs/
+.vscode/

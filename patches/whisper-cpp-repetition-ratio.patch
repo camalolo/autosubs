@@ -1,0 +1,47 @@
+diff --git a/src/whisper.cpp b/src/whisper.cpp
+index 1675f33..7ba599f 100644
+--- a/src/whisper.cpp
++++ b/src/whisper.cpp
+@@ -7729,6 +7729,42 @@ int whisper_full_with_state(
+                         continue;
+                     }
+ 
++                    // [autosubs patch] repetition-ratio rejection, mirroring OpenAI
++                    // Whisper's documented compression_ratio_threshold (2.4):
++                    // degenerate loops repeat the same n-grams over and over, so the
++                    // fraction of tokens extending an already-seen 4-gram explodes
++                    // (>0.4) while normal speech stays near 0. Rejecting the window
++                    // routes it into the temperature fallback, which breaks the cycle.
++                    if (decoder.sequence.result_len > 32) {
++                        const int N = 4;
++                        std::vector<uint64_t> grams;
++                        grams.reserve(decoder.sequence.result_len);
++                        int rep = 0;
++                        for (int i = N - 1; i < decoder.sequence.result_len; ++i) {
++                            uint64_t g = 1469598103934665603ull;
++                            for (int q = i - N + 1; q <= i; ++q) {
++                                whisper_token t = decoder.sequence.tokens[q].id;
++                                g = (g ^ (uint64_t) t) * 1099511628211ull;
++                            }
++                            bool seen = false;
++                            for (uint64_t prev : grams) {
++                                if (prev == g) { seen = true; break; }
++                            }
++                            if (seen) rep++;
++                            grams.push_back(g);
++                        }
++                        const double ratio = grams.empty() ? 0.0 : (double) rep / (double) grams.size();
++                        if (ratio > 0.40) {
++                            WHISPER_LOG_DEBUG("%s: decoder %2d: failed due to repetition ratio %.3f > 0.40\n",
++                                    __func__, j, ratio);
++
++                            decoder.failed = true;
++                            state->n_fail_h++;
++
++                            continue;
++                        }
++                    }
++
+                     if (best_score < decoder.sequence.score) {
+                         best_score = decoder.sequence.score;
+                         best_decoder_id = j;
